@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AquaPure Pro — RO Shop Manager(Naresh Kumar)</title>
+<title>AquaPure Pro — RO Shop Manager</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -213,8 +213,8 @@
 
   .stat-card.blue::before { background: var(--accent); }
   .stat-card.green::before { background: var(--accent3); }
-  .stat-card.purple::before { background: var(--1); }
-  .stat-card.pink::before { background: var(--2); }
+  .stat-card.purple::before { background: var(--godown1); }
+  .stat-card.pink::before { background: var(--godown2); }
   .stat-card.warn::before { background: var(--warn); }
 
   .stat-label { font-size: 12px; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; }
@@ -395,8 +395,8 @@
     line-height: 1;
   }
 
-  /*  TABS */
-  .-tabs {
+  /* GODOWN TABS */
+  .godown-tabs {
     display: flex;
     gap: 8px;
     margin-bottom: 20px;
@@ -404,7 +404,7 @@
     padding-bottom: 0;
   }
 
-  .-tab {
+  .godown-tab {
     padding: 10px 20px;
     border-radius: 8px 8px 0 0;
     cursor: pointer;
@@ -418,16 +418,16 @@
     margin-bottom: -1px;
   }
 
-  .-tab.active-g1 {
+  .godown-tab.active-g1 {
     background: rgba(124,58,237,0.2);
     color: #a78bfa;
-    border-color: var(--1);
+    border-color: var(--godown1);
   }
 
-  .-tab.active-g2 {
+  .godown-tab.active-g2 {
     background: rgba(219,39,119,0.2);
     color: #f472b6;
-    border-color: var(--2);
+    border-color: var(--godown2);
   }
 
   /* SEARCH */
@@ -803,7 +803,7 @@
             <table>
               <thead>
                 <tr>
-                  <th>Order #</th><th>Date</th><th>Customer</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th>
+                  <th>Order #</th><th>Date</th><th>Customer</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th><th>Receipt</th>
                 </tr>
               </thead>
               <tbody id="orders-table"></tbody>
@@ -982,6 +982,20 @@
       </div>
 
     </div><!-- /content -->
+
+  <!-- RECEIPT MODAL -->
+  <div class="modal-overlay" id="receipt-overlay" style="z-index:2000;">
+    <div class="modal" id="receipt-modal" style="max-width:480px;">
+      <div class="modal-title">
+        <span>🧾 Sales Receipt</span>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-primary btn-sm" onclick="downloadReceipt()">⬇️ Download PDF</button>
+          <button class="modal-close" onclick="closeReceipt()">✕</button>
+        </div>
+      </div>
+      <div id="receipt-content"></div>
+    </div>
+  </div>
   </main>
 </div><!-- /app -->
 
@@ -1295,6 +1309,7 @@ function renderOrders(filter='') {
       <td><strong>₹${(o.total||0).toLocaleString('en-IN')}</strong></td>
       <td><span class="pill pill-blue">${o.payment||'Cash'}</span></td>
       <td><span class="pill pill-green">${o.status||'Completed'}</span></td>
+      <td><button class="btn btn-outline btn-sm" onclick="showReceipt('${o.id}')">🧾 Receipt</button></td>
     </tr>
   `).join('');
 }
@@ -1560,6 +1575,9 @@ async function saveSale() {
   await loadAll();
   showPage('orders');
   showToast('Sale recorded! ₹' + total.toLocaleString('en-IN'), 'success');
+  // Auto-show receipt after sale
+  const savedOrder = allOrders[allOrders.length - 1];
+  if (savedOrder) showReceipt(savedOrder.id);
 }
 
 // ===========================
@@ -1759,6 +1777,138 @@ async function deleteItem(collection, id) {
   await deleteDoc(collection, id);
   await loadAll();
   showToast('Deleted', 'success');
+}
+
+// ===========================
+// RECEIPT
+// ===========================
+function showReceipt(orderId) {
+  const o = allOrders.find(x => x.id === orderId);
+  if (!o) return;
+
+  const receiptNo = 'RCP-' + (o.id?.slice(-6)||Date.now().toString().slice(-6)).toUpperCase();
+  const subtotal = (o.items||[]).reduce((s,i) => s + (i.qty||0)*(i.price||0), 0);
+  const now = new Date();
+  const printTime = now.toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit'});
+
+  const itemRows = (o.items||[]).map(i => `
+    <tr>
+      <td style="padding:8px 4px;border-bottom:1px dashed #ddd;font-size:13px;">${i.name}</td>
+      <td style="padding:8px 4px;border-bottom:1px dashed #ddd;font-size:13px;text-align:center;">${i.qty}</td>
+      <td style="padding:8px 4px;border-bottom:1px dashed #ddd;font-size:13px;text-align:right;">₹${(i.price||0).toLocaleString('en-IN')}</td>
+      <td style="padding:8px 4px;border-bottom:1px dashed #ddd;font-size:13px;text-align:right;font-weight:600;">₹${((i.qty||0)*(i.price||0)).toLocaleString('en-IN')}</td>
+    </tr>
+  `).join('');
+
+  document.getElementById('receipt-content').innerHTML = `
+    <div id="printable-receipt" style="font-family:'DM Sans',sans-serif;color:#1a1a2e;background:#fff;padding:0;">
+
+      <!-- Header -->
+      <div style="text-align:center;padding:20px 0 16px;border-bottom:2px dashed #ddd;">
+        <div style="font-size:22px;font-weight:800;color:#0099cc;letter-spacing:-0.5px;">💧 AquaPure Pro</div>
+        <div style="font-size:12px;color:#666;margin-top:4px;">RO Water Solutions</div>
+        <div style="font-size:11px;color:#888;margin-top:2px;">aquasure-55114 | aquasure@shop.com</div>
+      </div>
+
+      <!-- Receipt meta -->
+      <div style="display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px dashed #ddd;">
+        <div>
+          <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;">Receipt No.</div>
+          <div style="font-size:14px;font-weight:700;color:#1a1a2e;">${receiptNo}</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;">Date & Time</div>
+          <div style="font-size:13px;font-weight:600;">${o.date} ${printTime}</div>
+        </div>
+      </div>
+
+      <!-- Customer -->
+      <div style="padding:10px 0;border-bottom:1px dashed #ddd;">
+        <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;">Customer</div>
+        <div style="font-size:14px;font-weight:600;margin-top:2px;">${o.customer||'Walk-in Customer'}</div>
+      </div>
+
+      <!-- Items table -->
+      <table style="width:100%;border-collapse:collapse;margin:12px 0;">
+        <thead>
+          <tr style="background:#f0f8ff;">
+            <th style="padding:8px 4px;font-size:11px;text-align:left;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Item</th>
+            <th style="padding:8px 4px;font-size:11px;text-align:center;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Qty</th>
+            <th style="padding:8px 4px;font-size:11px;text-align:right;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Rate</th>
+            <th style="padding:8px 4px;font-size:11px;text-align:right;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Amount</th>
+          </tr>
+        </thead>
+        <tbody>${itemRows}</tbody>
+      </table>
+
+      <!-- Totals -->
+      <div style="border-top:2px dashed #ddd;padding-top:10px;">
+        <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;">
+          <span style="color:#555;">Subtotal</span>
+          <span>₹${subtotal.toLocaleString('en-IN')}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;">
+          <span style="color:#555;">Tax (GST 18%)</span>
+          <span>Included</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:10px 0 6px;font-size:17px;font-weight:800;border-top:1px dashed #ddd;margin-top:6px;">
+          <span>Total</span>
+          <span style="color:#0099cc;">₹${(o.total||0).toLocaleString('en-IN')}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:#555;padding-bottom:12px;">
+          <span>Payment Mode</span>
+          <span style="font-weight:600;">${o.payment||'Cash'}</span>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div style="text-align:center;padding:14px 0 4px;border-top:2px dashed #ddd;">
+        <div style="font-size:13px;font-weight:600;color:#0099cc;">Thank you for your purchase! 💧</div>
+        <div style="font-size:11px;color:#888;margin-top:4px;">For service & support, contact your nearest AquaPure dealer.</div>
+        <div style="font-size:10px;color:#aaa;margin-top:8px;">This is a computer-generated receipt.</div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('receipt-overlay').classList.add('open');
+}
+
+function closeReceipt() {
+  document.getElementById('receipt-overlay').classList.remove('open');
+}
+
+function downloadReceipt() {
+  const receiptEl = document.getElementById('printable-receipt');
+  if (!receiptEl) return;
+
+  const printWindow = window.open('', '_blank', 'width=480,height=700');
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>Receipt — AquaPure Pro</title>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+      <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'DM Sans',sans-serif; background:#fff; padding:24px; max-width:400px; margin:0 auto; }
+        @media print {
+          body { padding:0; }
+          @page { size: A5; margin: 16px; }
+        }
+      </style>
+    </head>
+    <body>
+      ${receiptEl.outerHTML}
+      <script>
+        window.onload = function() {
+          setTimeout(function(){ window.print(); window.close(); }, 400);
+        };
+      <\/script>
+    </body>
+    </html>
+  `);
+  printWindow.document.close();
 }
 
 // ===========================
